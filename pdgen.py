@@ -36,11 +36,10 @@ class Outlet(object):
         self.inlets.append((inlet, edge_id))
 
 
-class PdObject(object):
-    def __init__(self, patch, id, name, *args):
+class PdElement(object):
+    def __init__(self, patch, id, *args):
         self.patch = patch
         self.id = id
-        self.name = name
         self.args = args
         self.ins = {}
         self.outlets = {}
@@ -58,8 +57,22 @@ class PdObject(object):
     def __getitem__(self, index):
         return InletOutlet(self, index)
 
+
+class PdObject(PdElement):
+    def __init__(self, patch, id, name, *args):
+        super(PdObject, self).__init__(patch, id, *args)
+        self.name = name
+
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_obj(self, ctx=ctx)
+
+
+class PdMessage(PdElement):
+    def __init__(self, patch, id, *args):
+        super(PdMessage, self).__init__(patch, id, *args)
+
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_pd_msg(self, ctx=ctx)
 
 
 class PdPatch(object):
@@ -72,7 +85,7 @@ class PdPatch(object):
         self.seq += 1
         return self.seq
 
-    def _add_obj(self, factory):
+    def _add_element(self, factory):
         node_id = self.next_key()
         self.graph.add_node(node_id)
         newobj = factory(node_id)
@@ -80,24 +93,30 @@ class PdPatch(object):
         return newobj
 
     def obj(self, name, *args):
-        return self._add_obj(lambda node_id: PdObject(self, node_id, name, *args))
+        return self._add_element(lambda node_id: PdObject(self, node_id, name, *args))
 
     def subpatch(self, name):
-        return self._add_obj(lambda node_id: PdSubPatch(self, node_id, name))
+        return self._add_element(lambda node_id: PdSubPatch(self, node_id, name))
+
+    def msg(self, *args):
+        return self._add_element(lambda node_id: PdMessage(self, node_id, *args))
 
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_patch(self, ctx=ctx)
 
 
 # TODO force layout of inlets and outlets to have stable order
-class PdSubPatch(PdObject):
+class PdSubPatch(PdElement):
     def __init__(self, patch, id, name):
-        super(PdSubPatch, self).__init__(patch, id, "pd")
+        super(PdSubPatch, self).__init__(patch, id)
         self.subpatch = PdPatch()
         self.name = name
 
     def obj(self, name, *args):
         return self.subpatch.obj(name, *args)
+
+    def msg(self, *args):
+        return self.subpatch.msg(*args)
 
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_subpatch(self, ctx=ctx)
@@ -107,14 +126,27 @@ class RenderVisitor(object):
     def __init__(self, out):
         self.out = out
 
+    def render_arg(self, arg):
+        return str(arg).replace(',', '\\,')
+
     def visit_pd_obj(self, pd_obj, ctx=None):
         args = ''
         for arg in pd_obj.args:
-            args += ' ' + str(arg)
+            args += ' ' + self.render_arg(arg)
         x_pos = ctx['x_pos']
         y_pos = ctx['y_pos']
         line = "#X obj %u %u %s%s;\n" % (x_pos, y_pos, pd_obj.name, args)
         self.out.write(line)
+
+    def visit_pd_msg(self, pd_msg, ctx=None):
+        args = ''
+        for arg in pd_msg.args:
+            args += ' ' + self.render_arg(arg)
+        x_pos = ctx['x_pos']
+        y_pos = ctx['y_pos']
+        line = "#X msg %u %u%s;\n" % (x_pos, y_pos, args)
+        self.out.write(line)
+
 
     def visit_pd_subpatch(self, pd_obj, ctx=None):
         new_ctx = {}
