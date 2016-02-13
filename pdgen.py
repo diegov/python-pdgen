@@ -58,6 +58,9 @@ class PdObject(object):
     def __getitem__(self, index):
         return InletOutlet(self, index)
 
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_pd_obj(self, ctx=ctx)
+
 
 class PdPatch(object):
     def __init__(self):
@@ -69,50 +72,100 @@ class PdPatch(object):
         self.seq += 1
         return self.seq
 
-    def obj(self, name, *args):        
+    def _add_obj(self, factory):
         node_id = self.next_key()
         self.graph.add_node(node_id)
-        newobj = PdObject(self, node_id, name, *args)
+        newobj = factory(node_id)
         self.objects[node_id] = newobj
         return newobj
 
-    
-def render(patch):
+    def obj(self, name, *args):
+        return self._add_obj(lambda node_id: PdObject(self, node_id, name, *args))
 
-    height = 1000
-    width  = 1000
+    def subpatch(self, name):
+        return self._add_obj(lambda node_id: PdSubPatch(self, node_id, name))
 
-    result = '#N canvas 1000 1000 1000 1000 10;\n'
-    out_indices = {}
-    positions = nx.spring_layout(patch.graph)
-    sorted_nodes = nx.topological_sort(patch.graph)
-    
-    for ndx, id in enumerate(sorted_nodes):
-        pd_obj = patch.objects[id]
-        out_indices[id] = ndx
-        x_pos = int(positions[id][0] * width)
-        y_pos = int(positions[id][1] * height)
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_pd_patch(self, ctx=ctx)
+
+
+# TODO force layout of inlets and outlets to have stable order
+class PdSubPatch(PdObject):
+    def __init__(self, patch, id, name):
+        super(PdSubPatch, self).__init__(patch, id, "pd")
+        self.subpatch = PdPatch()
+        self.name = name
+
+    def obj(self, name, *args):
+        return self.subpatch.obj(name, *args)
+
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_pd_subpatch(self, ctx=ctx)
+
+
+class RenderVisitor(object):
+    def __init__(self, out):
+        self.out = out
+
+    def visit_pd_obj(self, pd_obj, ctx=None):
         args = ''
         for arg in pd_obj.args:
             args += ' ' + str(arg)
+        x_pos = ctx['x_pos']
+        y_pos = ctx['y_pos']
         line = "#X obj %u %u %s%s;\n" % (x_pos, y_pos, pd_obj.name, args)
-        result += line
+        self.out.write(line)
 
-    for id in sorted_nodes:
-        pd_obj = patch.objects[id]
-        for out_ndx in sorted(pd_obj.outlets.keys()):
-            outlet = pd_obj.outlets[out_ndx]
-            for inlet, edge_id in outlet.inlets:
-                out_obj_ndx = out_indices[outlet.parent.id]
-                in_obj_ndx = out_indices[inlet.parent.id]
-                line = "#X connect %u %u %u %u\n" % \
-                       (out_obj_ndx, outlet.index, in_obj_ndx, inlet.index)
-                result += line
+    def visit_pd_subpatch(self, pd_obj, ctx=None):
+        new_ctx = {}
+        new_ctx['subpatch'] = pd_obj.name
+        new_ctx = dict(ctx, **new_ctx)
+        self.visit_pd_patch(pd_obj.subpatch, new_ctx)
+        x_pos = ctx['x_pos']
+        y_pos = ctx['y_pos']
+        line = "#X restore %u %u pd %s;\n" % (x_pos, y_pos, pd_obj.name)
+        self.out.write(line)
 
-    return result
+    def visit_pd_patch(self, patch, ctx=None):
+        if ctx is None:
+            ctx = {}
 
+        height = 20 * len(patch.graph.nodes())
+        width  = 20 * len(patch.graph.nodes())
 
-#g = nx.DiGraph()
+        startline = '#N canvas 1 1 500 500 '
+        if 'subpatch' in ctx:
+            startline += ctx['subpatch'] + ' '
+            
+        startline += '10;\n'
+        self.out.write(startline)
+        
+        out_indices = {}
+        # TODO: graphviz layout
+        positions = nx.spring_layout(patch.graph)
+        sorted_nodes = nx.topological_sort(patch.graph)
 
-#g.add_node(1)
+        for ndx, id in enumerate(sorted_nodes):
+            pd_obj = patch.objects[id]
+            out_indices[id] = ndx
+            x_pos = int(positions[id][0] * width)
+            y_pos = int(positions[id][1] * height)
+
+            ctx = {}
+            ctx['x_pos'] = x_pos
+            ctx['y_pos'] = y_pos
+
+            pd_obj.accept(self, ctx=ctx)
+
+        for id in sorted_nodes:
+            pd_obj = patch.objects[id]
+            for out_ndx in sorted(pd_obj.outlets.keys()):
+                outlet = pd_obj.outlets[out_ndx]
+                for inlet, edge_id in outlet.inlets:
+                    out_obj_ndx = out_indices[outlet.parent.id]
+                    in_obj_ndx = out_indices[inlet.parent.id]
+                    line = "#X connect %u %u %u %u;\n" % \
+                           (out_obj_ndx, outlet.index, in_obj_ndx, inlet.index)
+                    self.out.write(line)
+
 
