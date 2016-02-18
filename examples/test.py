@@ -1,39 +1,23 @@
 #!/usr/bin/env python3
 
+import sys
+sys.path.append('../..')
+sys.path.append('../libpd/python/build/lib.linux-x86_64-3.5')
+
 from pdgen import PdPatch, RenderVisitor
+from pdgen.audition import audition
+from utils import get_pan
 
 patch = PdPatch()
-
-def get_pan(pan_position):
-    subp = patch.subpatch('pan')
-
-    loadbang = subp.obj('loadbang')
-    msg = subp.msg(pan_position)
-    loadbang[0].to(msg[0])
-
-    inlet = subp.obj('inlet~')
-    
-    pan = subp.obj('pan~')
-    msg[0].to(pan[1])
-    inlet[0].to(pan[0])
-
-    # TODO: Force position!
-    outletl = subp.obj('outlet~')
-    outletr = subp.obj('outlet~')
-
-    pan[0].to(outletl[0])
-    pan[1].to(outletr[0])
-
-    return subp
 
 def get_modulator(carrier_freq, modulator_freq, width):
     subp = patch.subpatch('modulator')
 
     env_length = (1000 / carrier_freq) * 35
     
-    loadbang = subp.obj('loadbang')
     metro = subp.obj('metro', env_length)
-    loadbang[0].to(metro[0])
+    # Make sure it gets started with the patch
+    subp.loadbang(metro[0])
     
     msg = subp.msg(1.0, env_length * 0.05, ",",
                    0.8, env_length * 0.25, env_length * 0.25, ",",
@@ -91,7 +75,7 @@ for i in range(oscs):
     mult = patch.obj('*~', 0.3 / oscs)
     sine[0].to(mult[0])
 
-    pan = get_pan((i * 300) % 80 - 40)
+    pan = get_pan(patch, (i * 300) % 80 - 40)
     mult[0].to(pan[0])
     
     pan[0].to(freeverb[0])
@@ -106,3 +90,4 @@ for i in range(oscs):
 import sys
 patch.accept(RenderVisitor(sys.stdout))
 
+audition(patch)
