@@ -181,7 +181,11 @@ class RenderVisitor(object):
         out_indices = {}
         # TODO: graphviz layout
         positions = nx.spring_layout(patch.graph)
-        sorted_nodes = nx.topological_sort(patch.graph)
+        try:
+            sorted_nodes = nx.topological_sort(patch.graph)
+        except nx.NetworkXUnfeasible:
+            # If there's a cycle, we can't sort
+            sorted_nodes = patch.graph.nodes()
 
         for ndx, id in enumerate(sorted_nodes):
             pd_obj = patch.objects[id]
