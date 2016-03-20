@@ -1,6 +1,3 @@
-import sys
-sys.path.append('../..')
-
 from pdgen import PdPatch, RenderVisitor
 from utils import get_sequence, get_portamento
 

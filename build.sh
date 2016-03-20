@@ -14,4 +14,6 @@ pushd "$THIS_SCRIPT_DIR" > /dev/null
 pushd libpd/python && make && python setup.py install && popd
 pip3 install -r requirements.txt
 
+python setup.py install
+
 popd > /dev/null
