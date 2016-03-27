@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 
+import sys
 import networkx as nx
+
+
+def _import_validation():
+    try:
+        from . import validation
+    except ImportError as e:
+        sys.stderr.write('Validation requires the pylibpd package\n')
+        raise e
+
 
 class InletOutlet(object):
     def __init__(self, parent, index):
@@ -21,10 +31,13 @@ class Inlet(object):
 
 
 class Outlet(object):
-    def __init__(self, parent, index):
+    def __init__(self, parent, index, validate):
         self.parent = parent
         self.inlets = []
         self.index = index
+        self.validate = validate
+        if self.validate:
+            _import_validation()
 
     def to(self, inlet):
         if isinstance(inlet, InletOutlet):
@@ -33,13 +46,16 @@ class Outlet(object):
         edge_id = self.parent.patch.next_key()
         self.parent.patch.graph.add_edge(self.parent.id,
                                          inlet.parent.id, edge_id)
+        if self.validate:
+            validation.validate_connection(self, inlet)
         self.inlets.append((inlet, edge_id))
 
 
 class PdElement(object):
-    def __init__(self, patch, id, *args):
+    def __init__(self, patch, id, validate, *args):
         self.patch = patch
         self.id = id
+        self.validate = validate
         self.args = args
         self.ins = {}
         self.outlets = {}
@@ -51,7 +67,7 @@ class PdElement(object):
 
     def outlet(self, index):
         if index not in self.outlets:
-            self.outlets[index] = Outlet(self, index)
+            self.outlets[index] = Outlet(self, index, self.validate)
         return self.outlets[index]
 
     def __getitem__(self, index):
@@ -59,8 +75,8 @@ class PdElement(object):
 
 
 class PdObject(PdElement):
-    def __init__(self, patch, id, name, *args):
-        super(PdObject, self).__init__(patch, id, *args)
+    def __init__(self, patch, id, name, validate, *args):
+        super(PdObject, self).__init__(patch, id, validate, *args)
         self.name = name
 
     def accept(self, render_visitor, ctx=None):
@@ -68,8 +84,8 @@ class PdObject(PdElement):
 
 
 class PdMessage(PdElement):
-    def __init__(self, patch, id, *args):
-        super(PdMessage, self).__init__(patch, id, *args)
+    def __init__(self, patch, id, validate, *args):
+        super(PdMessage, self).__init__(patch, id, validate, *args)
 
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_msg(self, ctx=ctx)
@@ -82,6 +98,8 @@ class PdPatch(object):
         self.seq = 0
         self._loadbang = None
         self.validate = validate
+        if self.validate:
+            _import_validation()
 
     def next_key(self):
         self.seq += 1
@@ -95,13 +113,18 @@ class PdPatch(object):
         return newelement
 
     def obj(self, name, *args):
-        return self._add_element(lambda node_id: PdObject(self, node_id, name, *args))
+        if self.validate:
+            validation.validate_obj(name, *args)
+        return self._add_element(lambda node_id: PdObject(self, node_id, name,
+                                                          self.validate, *args))
 
     def subpatch(self, name):
-        return self._add_element(lambda node_id: PdSubPatch(self, node_id, name))
+        return self._add_element(lambda node_id: PdSubPatch(self, node_id,
+                                                            name, validate=self.validate))
 
     def msg(self, *args):
-        return self._add_element(lambda node_id: PdMessage(self, node_id, *args))
+        return self._add_element(lambda node_id: PdMessage(self, node_id,
+                                                           self.validate, *args))
 
     def loadbang(self, inlet):
         if self._loadbang is None:
@@ -114,9 +137,9 @@ class PdPatch(object):
 
 # TODO force layout of inlets and outlets to have stable order
 class PdSubPatch(PdElement):
-    def __init__(self, patch, id, name):
+    def __init__(self, patch, id, name, validate):
         super(PdSubPatch, self).__init__(patch, id)
-        self.subpatch = PdPatch()
+        self.subpatch = PdPatch(validate=validate)
         self.name = name
 
     def accept(self, render_visitor, ctx=None):
@@ -152,7 +175,6 @@ class RenderVisitor(object):
         y_pos = ctx['y_pos']
         line = "#X msg %u %u%s;\n" % (x_pos, y_pos, args)
         self.out.write(line)
-
 
     def visit_pd_subpatch(self, pd_obj, ctx=None):
         new_ctx = {}

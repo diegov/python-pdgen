@@ -1,2 +1,6 @@
 **/*.pd
 **/__pycache__
+venv/
+PdGen.egg-info/
+build/
+dist/
