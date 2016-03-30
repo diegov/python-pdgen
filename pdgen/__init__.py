@@ -70,6 +70,9 @@ class PdElement(object):
             self.outlets[index] = Outlet(self, index, self.validate)
         return self.outlets[index]
 
+    def is_obj(self):
+        return False
+
     def __getitem__(self, index):
         return InletOutlet(self, index)
 
@@ -81,6 +84,9 @@ class PdObject(PdElement):
 
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_obj(self, ctx=ctx)
+
+    def is_obj(self):
+        return True
 
 
 class PdMessage(PdElement):
@@ -120,7 +126,7 @@ class PdPatch(object):
 
     def subpatch(self, name):
         return self._add_element(lambda node_id: PdSubPatch(self, node_id,
-                                                            name, validate=self.validate))
+                                                            name, self.validate))
 
     def msg(self, *args):
         return self._add_element(lambda node_id: PdMessage(self, node_id,
@@ -138,7 +144,7 @@ class PdPatch(object):
 # TODO force layout of inlets and outlets to have stable order
 class PdSubPatch(PdElement):
     def __init__(self, patch, id, name, validate):
-        super(PdSubPatch, self).__init__(patch, id)
+        super(PdSubPatch, self).__init__(patch, id, validate)
         self.subpatch = PdPatch(validate=validate)
         self.name = name
 
