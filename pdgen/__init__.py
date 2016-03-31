@@ -89,6 +89,25 @@ class PdObject(PdElement):
         return True
 
 
+# TODO: These are useless at the moment
+class PdInletObj(PdObject):
+    def __init__(self, patch, id, is_signal, validate):
+        name = 'inlet~' if is_signal else 'inlet'
+        super(PdInletObj, self).__init__(patch, id, name, validate)
+
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_inlet_obj(self, ctx=ctx)
+
+
+class PdOutletObj(PdObject):
+    def __init__(self, patch, id, is_signal, validate):
+        name = 'outlet~' if is_signal else 'outlet'
+        super(PdOutletObj, self).__init__(patch, id, name, validate)
+
+    def accept(self, render_visitor, ctx=None):
+        render_visitor.visit_outlet_obj(self, ctx=ctx)
+
+
 class PdMessage(PdElement):
     def __init__(self, patch, id, validate, *args):
         super(PdMessage, self).__init__(patch, id, validate, *args)
@@ -119,8 +138,14 @@ class PdPatch(object):
         return newelement
 
     def obj(self, name, *args):
+        name = name.strip().lower()
         if self.validate:
             validation.validate_obj(name, *args)
+
+        handled = self._handle_special_object(name, args)
+        if handled is not None:
+            return handled
+        
         return self._add_element(lambda node_id: PdObject(self, node_id, name,
                                                           self.validate, *args))
 
@@ -137,8 +162,28 @@ class PdPatch(object):
             self._loadbang = self.obj('loadbang')
         self._loadbang[0].to(inlet)
 
+    def inlet_obj(self, is_signal):
+        return self._add_element(lambda node_id: PdInletObj(self, node_id,
+                                                            is_signal, self.validate))
+
+    def outlet_obj(self, is_signal):
+        return self._add_element(lambda node_id: PdOutletObj(self, node_id,
+                                                             is_signal, self.validate))
+
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_patch(self, ctx=ctx)
+
+    def _handle_special_object(self, name, args):
+        if name == 'inlet':
+            return self.inlet_obj(False)
+        elif name == 'inlet~':
+            return self.inlet_obj(True)
+        elif name == 'outlet':
+            return self.outlet_obj(False)
+        elif name == 'outlet~':
+            return self.outlet_obj(True)
+
+        return None
 
 
 # TODO force layout of inlets and outlets to have stable order
@@ -173,6 +218,12 @@ class RenderVisitor(object):
         line = "#X obj %u %u %s%s;\n" % (x_pos, y_pos, pd_obj.name, args)
         self.out.write(line)
 
+    def visit_inlet_obj(self, pd_obj, ctx=None):
+        self.visit_pd_obj(pd_obj, ctx=ctx)
+
+    def visit_outlet_obj(self, pd_obj, ctx=None):
+        self.visit_pd_obj(pd_obj, ctx=ctx)
+
     def visit_pd_msg(self, pd_msg, ctx=None):
         args = ''
         for arg in pd_msg.args:
@@ -195,6 +246,8 @@ class RenderVisitor(object):
     def visit_pd_patch(self, patch, ctx=None):
         if ctx is None:
             ctx = {}
+        else:
+            ctx = dict(ctx)
 
         height = 20 * len(patch.graph.nodes())
         width  = 20 * len(patch.graph.nodes())
@@ -214,6 +267,19 @@ class RenderVisitor(object):
         except nx.NetworkXUnfeasible:
             # If there's a cycle, we can't sort
             sorted_nodes = patch.graph.nodes()
+
+        # HACK to ensure inlets and outlets are in the right order
+        inlets = sorted([patch.objects[id] for id in sorted_nodes if isinstance(patch.objects[id], PdInletObj)],
+                        key=lambda x: x.id)
+        outlets = sorted([patch.objects[id] for id in sorted_nodes if isinstance(patch.objects[id], PdOutletObj)],
+                         key=lambda x: x.id)
+
+        # More hacks
+        forced_x_layouts = {obj.id: ndx / len(inlets) for ndx, obj in enumerate(inlets)}
+        forced_x_layouts.update({obj.id: ndx / len(outlets) for ndx, obj in enumerate(outlets)})
+
+        for key in forced_x_layouts:
+            positions[key][0] = forced_x_layouts[key]
 
         for ndx, id in enumerate(sorted_nodes):
             pd_obj = patch.objects[id]
