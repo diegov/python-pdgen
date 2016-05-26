@@ -51,6 +51,12 @@ class Outlet(object):
         self.inlets.append((inlet, edge_id))
 
 
+class PdType:
+    ELEMENT = 1
+    OBJECT = 2
+    SUBPATCH = 3
+
+
 class PdElement(object):
     def __init__(self, patch, id, validate, *args):
         self.patch = patch
@@ -70,13 +76,18 @@ class PdElement(object):
             self.outlets[index] = Outlet(self, index, self.validate)
         return self.outlets[index]
 
-    def is_obj(self):
-        return False
+    def get_type(self):
+        return PdType.ELEMENT
 
     def __getitem__(self, index):
         return InletOutlet(self, index)
 
+    def __repr__(self):
+        fmt_string = '{0} id: {1} args: {2}'
+        return fmt_string.format(type(self), self.id,
+                                 ','.join([str(arg) for arg in self.args]))
 
+                                                    
 class PdObject(PdElement):
     def __init__(self, patch, id, name, validate, *args):
         super(PdObject, self).__init__(patch, id, validate, *args)
@@ -85,8 +96,14 @@ class PdObject(PdElement):
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_obj(self, ctx=ctx)
 
-    def is_obj(self):
-        return True
+    def get_type(self):
+        return PdType.OBJECT
+
+    def __repr__(self):
+        fmt_string = '{0} name: {1} args: {2}'
+        return fmt_string.format(type(self), self.name,
+                                 ','.join([str(arg) for arg in self.args]))
+
 
 
 # TODO: These are useless at the moment
@@ -173,6 +190,14 @@ class PdPatch(object):
     def accept(self, render_visitor, ctx=None):
         render_visitor.visit_pd_patch(self, ctx=ctx)
 
+    def get_sorted_inlets(self):
+        return sorted([self.objects[k] for k in self.objects if isinstance(self.objects[k], PdInletObj)],
+                        key=lambda x: x.id)
+
+    def get_sorted_outlets(self):
+        return sorted([self.objects[k] for k in self.objects if isinstance(self.objects[k], PdOutletObj)],
+                        key=lambda x: x.id)
+        
     def _handle_special_object(self, name, args):
         if name == 'inlet':
             return self.inlet_obj(False)
@@ -200,6 +225,13 @@ class PdSubPatch(PdElement):
         if not hasattr(self.subpatch, name):
             raise AttributeError('No attribute with name ' + name)
         return getattr(self.subpatch, name)
+
+    def __repr__(self):
+        fmt_string = 'PdSubPatch name: {0}'
+        return fmt_string.format(self.name)
+
+    def get_type(self):
+        return PdType.SUBPATCH
 
 
 class RenderVisitor(object):
@@ -269,10 +301,9 @@ class RenderVisitor(object):
             sorted_nodes = patch.graph.nodes()
 
         # HACK to ensure inlets and outlets are in the right order
-        inlets = sorted([patch.objects[id] for id in sorted_nodes if isinstance(patch.objects[id], PdInletObj)],
-                        key=lambda x: x.id)
-        outlets = sorted([patch.objects[id] for id in sorted_nodes if isinstance(patch.objects[id], PdOutletObj)],
-                         key=lambda x: x.id)
+        inlets = patch.get_sorted_inlets()
+        
+        outlets = patch.get_sorted_outlets()
 
         # More hacks
         forced_x_layouts = {obj.id: ndx / len(inlets) for ndx, obj in enumerate(inlets)}

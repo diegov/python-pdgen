@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
-from pdgen import PdPatch, RenderVisitor
+import sys
+from pdgen import PdPatch, RenderVisitor, validation
 
-patch = PdPatch()
+validation.add_externals_path(sys.argv[1])
+
+patch = PdPatch(validate=True)
+
 
 def get_pan(pan_position):
     subp = patch.subpatch('pan')

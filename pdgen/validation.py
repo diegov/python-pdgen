@@ -1,6 +1,8 @@
 import sys
 import os
 
+from . import PdType
+
 CONTROL_PORT = 1
 SIGNAL_PORT = 2
 
@@ -28,26 +30,47 @@ def validate_obj(name, *args):
         raise Exception("Invalid object %s" % (obj_command,))
 
 
+def _get_outlet_type_for_subpatch(subpatch, index):
+    outlets = subpatch.subpatch.get_sorted_outlets()
+    if index >= len(outlets):
+        return -1
+    obj = outlets[index]
+    return SIGNAL_PORT if obj.name == 'outlet~' else CONTROL_PORT
+
+
+def _get_inlet_type_for_subpatch(subpatch, index):
+    inlets = subpatch.subpatch.get_sorted_inlets()
+    if index >= len(inlets):
+        return -1
+    obj = inlets[index]
+    return SIGNAL_PORT if obj.name == 'inlet~' else CONTROL_PORT
+    
+
 def validate_connection(outlet, inlet):
-    if outlet.parent.is_obj():
+    if outlet.parent.get_type() == PdType.OBJECT:
         if _is_special_obj(outlet.parent.name):
             outlet_type = _get_outlet_type_for_special_obj(outlet.parent, outlet.index)
         else:
             leaving_obj = _make_cmd_string(outlet.parent.name, outlet.parent.args)
             outlet_type = pylibpd.libpd_outlet_type(leaving_obj, outlet.index)
+    elif outlet.parent.get_type() == PdType.SUBPATCH:
+        outlet_type = _get_outlet_type_for_subpatch(outlet.parent, outlet.index)
     else:
+        # All other elements have a single control input
         outlet_type = CONTROL_PORT if outlet.index == 0 else -1
 
     if outlet_type == -1:
         raise Exception("No outlet with index %u or object couldn't be created" %
                         (outlet.index,))
 
-    if inlet.parent.is_obj():
+    if inlet.parent.get_type() == PdType.OBJECT:
         if _is_special_obj(inlet.parent.name):
             inlet_type = _get_inlet_type_for_special_obj(inlet.parent, inlet.index)
         else:
             entering_obj = _make_cmd_string(inlet.parent.name, inlet.parent.args)
             inlet_type = pylibpd.libpd_inlet_type(entering_obj, inlet.index)
+    elif inlet.parent.get_type() == PdType.SUBPATCH:
+        inlet_type = _get_inlet_type_for_subpatch(inlet.parent, inlet.index)
     else:
         inlet_type = CONTROL_PORT if inlet.index == 0 else -1
 
