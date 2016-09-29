@@ -2,6 +2,7 @@
 
 import sys
 import networkx as nx
+import os
 
 
 def _import_validation():
@@ -143,6 +144,8 @@ class PdPatch(object):
         if self.validate:
             _import_validation()
 
+        self.abstraction_files = []
+
     def next_key(self):
         self.seq += 1
         return self.seq
@@ -153,6 +156,13 @@ class PdPatch(object):
         newelement = factory(node_id)
         self.objects[node_id] = newelement
         return newelement
+
+    # TODO: $ args
+    def abstr(self, pd_file):
+        if not pd_file in self.abstraction_files:
+            self.abstraction_files.append(pd_file)
+        name = os.path.splitext(pd_file.filepath)[0]
+        return self.obj(name)
 
     def obj(self, name, *args):
         name = name.strip().lower()
