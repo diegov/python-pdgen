@@ -10,7 +10,7 @@ outlet = f.patch.obj('outlet~')
 mul = f.patch.obj('*~')
 inlet[0].to(mul[1])
 
-osc = f.patch.obj('osc~', 311)
+osc = f.patch.obj('osc~', '$1')
 osc[0].to(mul[0])
 
 mul[0].to(outlet[0])
@@ -23,7 +23,7 @@ dac = f2.patch.obj('dac~')
 
 for i in range(4):
     main_osc = f2.patch.obj('osc~', 200 * (i + 1))
-    abstr = f2.patch.abstr(f)
+    abstr = f2.patch.abstr(f, 1000 - (i * 100))
     main_osc[0].to(abstr[0])
     if i % 2 == 0:
         abstr[0].to(dac[0])

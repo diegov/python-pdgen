@@ -158,11 +158,11 @@ class PdPatch(object):
         return newelement
 
     # TODO: $ args
-    def abstr(self, pd_file):
+    def abstr(self, pd_file, *args):
         if not pd_file in self.abstraction_files:
             self.abstraction_files.append(pd_file)
         name = os.path.splitext(pd_file.filepath)[0]
-        return self.obj(name)
+        return self.obj(name, *args)
 
     def obj(self, name, *args):
         name = name.strip().lower()
@@ -249,7 +249,7 @@ class RenderVisitor(object):
         self.out = out
 
     def render_arg(self, arg):
-        return str(arg).replace(',', '\\,')
+        return str(arg).replace(',', '\\,').replace('$', '\\$')
 
     def visit_pd_obj(self, pd_obj, ctx=None):
         args = ''
